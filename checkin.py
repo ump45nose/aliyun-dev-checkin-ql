@@ -1,5 +1,5 @@
 """Aliyun community sign-in and claim only; no generated posts or interactions."""
-import sys, os, importlib.util, time
+import sys, os, importlib.util, time, json
 from pathlib import Path
 if not any(os.getenv(k) for k in ('ALIYUN_ACCOUNTS','ALIYUN_COOKIE','ALIYUN_WEB_DATA','aliyunWeb_data','ALIYUN_USER','ALIYUN_PHONE')):
     sys.exit('待配置：在青龙环境变量添加 ALIYUN_COOKIE（开发者社区 Cookie）')
@@ -61,11 +61,19 @@ def sign_only(self):
 m.AliyunDevClient.run_earn_tasks=sign_only
 m.AliyunDevClient.run_cleanup=lambda self: None
 original_run=m.AliyunDevClient.run
+outcomes=[]
 def strict_run(self, *, force_phase=None):
     result=original_run(self, force_phase=force_phase)
     if not self.cfg.dry_run and not self.stats.get('sign_ok'):
         result['ok']=False
         result['message']=result.get('message') or 'Sign-in not confirmed'
+    message=str(result.get('message') or '')
+    outcomes.append({'success':bool(result.get('ok')) and bool(self.stats.get('sign_ok')),
+                     'reason':None if result.get('ok') and self.stats.get('sign_ok') else 'authentication_invalid' if 'Cookie' in message and '失效' in message else 'sign_in_unconfirmed'})
     return result
 m.AliyunDevClient.run=strict_run
-sys.exit(m.main())
+code=m.main()
+success=bool(outcomes) and all(x['success'] for x in outcomes) and code in (0,None)
+print('BENEFIT_RESULT='+json.dumps({'platform':'aliyun','success':success,
+      'reason':next((x['reason'] for x in outcomes if not x['success']),None) if outcomes else 'no_verified_result'},ensure_ascii=False))
+sys.exit(0 if success else 1)
